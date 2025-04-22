@@ -577,11 +577,11 @@ def main():
                 st.experimental_rerun()
     
 # 결과 표시 (오른쪽 컬럼)
-with col2:
-    st.header("분석 결과")
-    
-    if analyze_btn and st.session_state.test_results:
-        with st.spinner("분석 중..."):
+    with col2:
+        st.header("분석 결과")
+        
+        if analyze_btn and st.session_state.test_results:
+            with st.spinner("분석 중..."):
             # 쿼리 생성
             query_parts = ["혈액검사 결과:"]
             for item, val in st.session_state.test_results.items():
