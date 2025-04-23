@@ -524,7 +524,7 @@ def initialize_rag_pipeline():
     try:
         with st.spinner("벡터 DB 다운로드 중..."):
             # Google Drive 파일 ID
-            vector_db_file_id = "https://drive.google.com/file/d/1K0_7pDzfawEnllbtXFeZuOa5JgPaYv3h/view?usp=sharing"
+            vector_db_file_id = "1K0_7pDzfawEnllbtXFeZuOa5JgPaYv3h"
             
             # 임시 파일 경로
             vector_db_path = os.path.join(tempfile.gettempdir(), "vector_db.pkl")
@@ -556,7 +556,7 @@ def initialize_rag_pipeline():
                             f.write(chunk)
             
             # 파일 다운로드
-            download_from_drive(vector_db_file_id, vector_db_path)
+            download_file_from_google_drive(vector_db_file_id, vector_db_path)
             
             st.success("파일 다운로드 완료")
             
