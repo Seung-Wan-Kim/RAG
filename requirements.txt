@@ -9,3 +9,4 @@ anthropic
 langchain-core
 langchain-community
 requests>=2.25.1
+gdown>=4.4.0
