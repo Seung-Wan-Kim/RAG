@@ -437,46 +437,46 @@ class BloodTestRAGPipeline:
         self.search_engine = search_engine
         self.response_generator = response_generator
     
-def process_query(self, query):
-    """
-    사용자 쿼리를 처리하여 응답을 생성합니다.
-    """
-    print(f"쿼리 처리 시작: {query}")
-    
-    # 1. 쿼리에서 혈액검사 결과 추출
-    # 혈액검사 결과가 포함된 부분만 추출
-    test_results_part = query
-    if "혈액검사 결과:" in query:
-        test_results_part = query.split("혈액검사 결과:")[1].strip()
-    
-    test_results = self.search_engine.parse_query_results(test_results_part)
-    print(f"추출된 검사 결과: {test_results}")
-    
-    # 2. 검사 결과 분석
-    test_analysis = self.search_engine.analyze_test_results(test_results)
-    
-    # 3. 벡터 검색 수행
-    search_results = self.search_engine.search(query)
-    
-    # 4. 가능한 진단명 추출
-    possible_diagnoses = self.search_engine.get_possible_diagnoses(search_results, test_analysis)
-    
-    # 5. 응답 생성
-    response = self.response_generator.generate_response(
-        query, search_results, test_analysis, possible_diagnoses
-    )
-    
-    # 6. 결과 반환
-    result = {
-        "query": query,
-        "test_results": test_results,
-        "test_analysis": test_analysis,
-        "possible_diagnoses": possible_diagnoses,
-        "response": response
-        "search_results": search_results,  # 검색 결과 추가
-    }
-    
-    return result
+    def process_query(self, query):
+        """
+        사용자 쿼리를 처리하여 응답을 생성합니다.
+        """
+        print(f"쿼리 처리 시작: {query}")
+        
+        # 1. 쿼리에서 혈액검사 결과 추출
+        # 혈액검사 결과가 포함된 부분만 추출
+        test_results_part = query
+        if "혈액검사 결과:" in query:
+            test_results_part = query.split("혈액검사 결과:")[1].strip()
+        
+        test_results = self.search_engine.parse_query_results(test_results_part)
+        print(f"추출된 검사 결과: {test_results}")
+        
+        # 2. 검사 결과 분석
+        test_analysis = self.search_engine.analyze_test_results(test_results)
+        
+        # 3. 벡터 검색 수행
+        search_results = self.search_engine.search(query)
+        
+        # 4. 가능한 진단명 추출
+        possible_diagnoses = self.search_engine.get_possible_diagnoses(search_results, test_analysis)
+        
+        # 5. 응답 생성
+        response = self.response_generator.generate_response(
+            query, search_results, test_analysis, possible_diagnoses
+        )
+        
+        # 6. 결과 반환
+        result = {
+            "query": query,
+            "test_results": test_results,
+            "test_analysis": test_analysis,
+            "search_results": search_results,  # 검색 결과 추가
+            "possible_diagnoses": possible_diagnoses,
+            "response": response
+        }
+        
+        return result
 
 # Google Drive에서 파일 다운로드 함수 정의
 def download_file_from_google_drive(file_id, destination):
@@ -512,7 +512,7 @@ def download_file_from_google_drive(file_id, destination):
 def initialize_rag_pipeline():
     import tempfile
     import os
-    import gdown
+    import requests
     
     # API 키를 Streamlit secrets에서 가져옴
     try:
@@ -524,9 +524,8 @@ def initialize_rag_pipeline():
     # 클라우드 스토리지에서 파일 다운로드
     try:
         with st.spinner("벡터 DB 다운로드 중..."):
-            # Google Drive 파일 ID와 URL
-            vector_db_file_id = "1K0_7pDzfawEnllbtXFeZuOa5JgPaYv3h"
-            vector_db_url = f"https://drive.google.com/uc?id={vector_db_file_id}"
+            # Google Drive 파일 ID
+            vector_db_file_id = "https://drive.google.com/file/d/1K0_7pDzfawEnllbtXFeZuOa5JgPaYv3h/view?usp=sharing"
             
             # 임시 파일 경로
             vector_db_path = os.path.join(tempfile.gettempdir(), "vector_db.pkl")
@@ -535,8 +534,30 @@ def initialize_rag_pipeline():
             current_dir = os.path.dirname(os.path.abspath(__file__))
             data_path = os.path.join(current_dir, "final_data.csv")
 
-            # gdown으로 파일 다운로드
-            gdown.download(vector_db_url, vector_db_path, quiet=False)
+            # 파일 다운로드 함수를 직접 구현
+            def download_from_drive(file_id, destination):
+                URL = "https://docs.google.com/uc?export=download"
+                session = requests.Session()
+
+                response = session.get(URL, params={'id': file_id}, stream=True)
+                token = None
+                for key, value in response.cookies.items():
+                    if key.startswith('download_warning'):
+                        token = value
+                        break
+
+                if token:
+                    params = {'id': file_id, 'confirm': token}
+                    response = session.get(URL, params=params, stream=True)
+
+                CHUNK_SIZE = 32768
+                with open(destination, "wb") as f:
+                    for chunk in response.iter_content(CHUNK_SIZE):
+                        if chunk:  # filter out keep-alive new chunks
+                            f.write(chunk)
+            
+            # 파일 다운로드
+            download_from_drive(vector_db_file_id, vector_db_path)
             
             st.success("파일 다운로드 완료")
             
@@ -614,7 +635,7 @@ def main():
                 with col_b:
                     if st.button("삭제", key=f"del_{item}"):
                         del st.session_state.test_results[item]
-                        st.rerun()
+                        st.experimental_rerun()
         
         # 분석 및 초기화 버튼
         col_analyze, col_reset = st.columns(2)
@@ -626,124 +647,125 @@ def main():
             reset_btn = st.button("초기화")
             if reset_btn:
                 st.session_state.test_results = {}
-                st.rerun()
+                st.experimental_rerun()
     
     # 결과 표시 (오른쪽 컬럼)
-with col2:
-    st.header("분석 결과")
-    
-    if analyze_btn and st.session_state.test_results:
-        with st.spinner("분석 중..."):
-            # 쿼리 생성
-            query_parts = ["혈액검사 결과:"]
-            for item, val in st.session_state.test_results.items():
-                query_parts.append(f"{item}: {val}")
-            
-            query = ", ".join(query_parts)
-            
-            # RAG 파이프라인 실행
-            if rag_pipeline:
-                result = rag_pipeline.process_query(query)
+    with col2:
+        st.header("분석 결과")
+        
+        if analyze_btn and st.session_state.test_results:
+            with st.spinner("분석 중..."):
+                # 쿼리 생성
+                query_parts = ["혈액검사 결과:"]
+                for item, val in st.session_state.test_results.items():
+                    query_parts.append(f"{item}: {val}")
                 
-                # 탭 생성
-                tab_results, tab_process = st.tabs(["최종 결과", "중간 과정"])
+                query = ", ".join(query_parts)
                 
-                with tab_results:
-                    # 비정상 항목 표시
-                    st.subheader("비정상 수치 항목")
+                # RAG 파이프라인 실행
+                if rag_pipeline:
+                    result = rag_pipeline.process_query(query)
                     
-                    analysis = result["test_analysis"]
-                    abnormal_items = [(item, data) for item, data in analysis.items() if data["status"] != "정상"]
+                    # 탭 생성
+                    tab_results, tab_process = st.tabs(["최종 결과", "중간 과정"])
                     
-                    if abnormal_items:
-                        for item, data in abnormal_items:
-                            if data["status"] == "높음":
-                                color = "danger"
-                            elif data["status"] == "낮음":
-                                color = "primary"
-                            else:
-                                color = "secondary"
+                    # 최종 결과 탭
+                    with tab_results:
+                        # 비정상 항목 표시
+                        st.subheader("비정상 수치 항목")
+                        
+                        analysis = result["test_analysis"]
+                        abnormal_items = [(item, data) for item, data in analysis.items() if data["status"] != "정상"]
+                        
+                        if abnormal_items:
+                            for item, data in abnormal_items:
+                                if data["status"] == "높음":
+                                    color = "danger"
+                                elif data["status"] == "낮음":
+                                    color = "primary"
+                                else:
+                                    color = "secondary"
+                                
+                                st.markdown(f"""
+                                <div style='padding: 10px; border-radius: 5px; background-color: {'#f8d7da' if color == 'danger' else '#cfe2ff' if color == 'primary' else '#e2e3e5'}'>
+                                    <b>{item}:</b> {data['value']} ({data['status']})<br>
+                                    <small>정상 범위: {data['normal_range']}</small><br>
+                                    <small>{data['deviation']}</small>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        else:
+                            st.success("모든 검사 항목이 정상 범위 내에 있습니다.")
+                        
+                        # 진단명 표시
+                        st.subheader("가능성 높은 진단명")
+                        
+                        if result["possible_diagnoses"]:
+                            for diagnosis, info in result["possible_diagnoses"][:5]:
+                                st.write(f"**{diagnosis}** (코드: {info['code']})")
+                                st.write(f"유사도: {info['avg_similarity']:.2f}")
+                                st.write("---")
+                        else:
+                            st.info("유사한 진단명을 찾을 수 없습니다.")
+                        
+                        # 상세 분석 및 권장 사항
+                        st.subheader("상세 분석 및 권장 사항")
+                        st.markdown(result["response"])
+                    
+                    # 중간 과정 탭
+                    with tab_process:
+                        st.subheader("RAG 시스템 중간 과정")
+                        
+                        # 1. 참조 데이터 정보
+                        with st.expander("참조 데이터 정보"):
+                            st.write("**정상범위 참조 데이터:**")
+                            st.json(normal_ranges)
                             
-                            st.markdown(f"""
-                            <div style='padding: 10px; border-radius: 5px; background-color: {'#f8d7da' if color == 'danger' else '#cfe2ff' if color == 'primary' else '#e2e3e5'}'>
-                                <b>{item}:</b> {data['value']} ({data['status']})<br>
-                                <small>정상 범위: {data['normal_range']}</small><br>
-                                <small>{data['deviation']}</small>
-                            </div>
-                            """, unsafe_allow_html=True)
-                    else:
-                        st.success("모든 검사 항목이 정상 범위 내에 있습니다.")
-                    
-                    # 진단명 표시
-                    st.subheader("가능성 높은 진단명")
-                    
-                    if result["possible_diagnoses"]:
-                        for diagnosis, info in result["possible_diagnoses"][:5]:
-                            st.write(f"**{diagnosis}** (코드: {info['code']})")
-                            st.write(f"유사도: {info['avg_similarity']:.2f}")
-                            st.write("---")
-                    else:
-                        st.info("유사한 진단명을 찾을 수 없습니다.")
-                    
-                    # 상세 분석 및 권장 사항
-                    st.subheader("상세 분석 및 권장 사항")
-                    st.markdown(result["response"])
-                
-                with tab_process:
-                    st.subheader("RAG 시스템 중간 과정")
-                    
-                    # 1. 참조 데이터 정보
-                    with st.expander("참조 데이터 정보"):
-                        st.write("**정상범위 참조 데이터:**")
-                        st.json(normal_ranges)
+                            st.write("**벡터 데이터베이스 정보:**")
+                            vector_db = getattr(rag_pipeline.search_engine, 'vector_db', None)
+                            if vector_db:
+                                st.write(f"데이터베이스 크기: {len(vector_db['documents'])} 문서")
+                                st.write(f"벡터 차원: {vector_db['index'].d}")
+                            else:
+                                st.write("임시 벡터 데이터베이스 사용 중")
                         
-                        st.write("**벡터 데이터베이스 정보:**")
-                        vector_db = getattr(rag_pipeline.search_engine, 'vector_db', None)
-                        if vector_db:
-                            st.write(f"데이터베이스 크기: {len(vector_db['documents'])} 문서")
-                            st.write(f"벡터 차원: {vector_db['index'].d}")
-                        else:
-                            st.write("임시 벡터 데이터베이스 사용 중")
-                    
-                    # 2. 쿼리 처리 과정
-                    with st.expander("쿼리 처리 과정"):
-                        st.write("**원본 쿼리:**")
-                        st.code(query)
+                        # 2. 쿼리 처리 과정
+                        with st.expander("쿼리 처리 과정"):
+                            st.write("**원본 쿼리:**")
+                            st.code(query)
+                            
+                            st.write("**추출된 검사 결과:**")
+                            st.json(result["test_results"])
                         
-                        st.write("**추출된 검사 결과:**")
-                        st.json(result["test_results"])
-                    
-                    # 3. 검색 결과 상세
-                    with st.expander("검색 결과 상세"):
-                        st.write("**상위 유사 문서:**")
-                        search_results = result.get("search_results", [])
-                        if search_results:
-                            for i, search_result in enumerate(search_results):
-                                st.markdown(f"**문서 {i+1}** (유사도: {search_result.get('similarity_score', 0):.4f})")
-                                st.write(f"내용: {search_result.get('content', '')[:200]}...")
-                                st.write(f"메타데이터: {search_result.get('metadata', {})}")
-                                st.write("---")
-                        else:
-                            st.info("검색 결과가 없습니다.")
-                    
-                    # 4. 진단 추론 과정
-                    with st.expander("진단 추론 과정"):
-                        st.write("**진단명 추출 및 점수 계산:**")
-                        possible_diagnoses = result.get("possible_diagnoses", [])
-                        if possible_diagnoses:
-                            for diagnosis, info in possible_diagnoses:
-                                st.write(f"**{diagnosis}** (코드: {info.get('code', 'N/A')})")
-                                st.write(f"발견 빈도: {info.get('count', 0)} 문서")
-                                similarity_scores = info.get('similarity_scores', [])
-                                if similarity_scores:
-                                    st.write(f"유사도 점수: {', '.join([f'{score:.4f}' for score in similarity_scores])}")
-                                st.write(f"평균 유사도: {info.get('avg_similarity', 0):.4f}")
-                                st.write("---")
-                        else:
-                            st.info("추출된 진단명이 없습니다.")
-                    
-            else:
-                st.error("RAG 파이프라인이 초기화되지 않았습니다.")
+                        # 3. 검색 결과 상세
+                        with st.expander("검색 결과 상세"):
+                            st.write("**상위 유사 문서:**")
+                            search_results = result.get("search_results", [])
+                            if search_results:
+                                for i, search_result in enumerate(search_results):
+                                    st.markdown(f"**문서 {i+1}** (유사도: {search_result.get('similarity_score', 0):.4f})")
+                                    st.write(f"내용: {search_result.get('content', '')[:200]}...")
+                                    st.write(f"메타데이터: {search_result.get('metadata', {})}")
+                                    st.write("---")
+                            else:
+                                st.info("검색 결과가 없습니다.")
+                        
+                        # 4. 진단 추론 과정
+                        with st.expander("진단 추론 과정"):
+                            st.write("**진단명 추출 및 점수 계산:**")
+                            possible_diagnoses = result.get("possible_diagnoses", [])
+                            if possible_diagnoses:
+                                for diagnosis, info in possible_diagnoses:
+                                    st.write(f"**{diagnosis}** (코드: {info.get('code', 'N/A')})")
+                                    st.write(f"발견 빈도: {info.get('count', 0)} 문서")
+                                    similarity_scores = info.get('similarity_scores', [])
+                                    if similarity_scores:
+                                        st.write(f"유사도 점수: {', '.join([f'{score:.4f}' for score in similarity_scores])}")
+                                    st.write(f"평균 유사도: {info.get('avg_similarity', 0):.4f}")
+                                    st.write("---")
+                            else:
+                                st.info("추출된 진단명이 없습니다.")
+                else:
+                    st.error("RAG 파이프라인이 초기화되지 않았습니다.")
 
 if __name__ == "__main__":
     main()
