@@ -480,22 +480,33 @@ class BloodTestRAGPipeline:
 # RAG 파이프라인 초기화 (전역 변수)
 @st.cache_resource
 def initialize_rag_pipeline():
-    vector_db_path = r"C:\Users\kswsu\OneDrive\Desktop\RAG\vector_db.pkl"
-    data_path = r"C:\Users\kswsu\OneDrive\Desktop\RAG\final_data.csv"
+    # 상대 경로 사용 (현재 스크립트 위치 기준)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    vector_db_path = os.path.join(current_dir, "vector_db.pkl")
+    data_path = os.path.join(current_dir, "final_data.csv")
     
     # API 키를 Streamlit secrets에서 가져옴
-    claude_api_key = st.secrets["anthropic"]["api_key"]
+    try:
+        claude_api_key = st.secrets["anthropic"]["api_key"]
+        print("API 키 로드 완료")
+    except Exception as e:
+        st.error(f"API 키 로드 중 오류 발생: {e}")
+        return None
     
     try:
         # 벡터 DB 로드
-        try:
+        if os.path.exists(vector_db_path):
             with open(vector_db_path, 'rb') as f:
                 vector_db = pickle.load(f)
             print("벡터 DB 로드 완료")
-        except Exception as e:
-            print(f"벡터 DB 로드 중 오류 발생: {e}")
-            print("임시 벡터 DB를 사용합니다.")
-            vector_db = None
+        else:
+            st.error(f"벡터 DB 파일이 존재하지 않습니다: {vector_db_path}")
+            return None
+        
+        # 데이터 파일 확인
+        if not os.path.exists(data_path):
+            st.error(f"데이터 파일이 존재하지 않습니다: {data_path}")
+            return None
         
         # RAG 검색 엔진 초기화
         search_engine = BloodTestRAGSearchEngine(vector_db, data_path)
@@ -512,6 +523,7 @@ def initialize_rag_pipeline():
         print(f"RAG 파이프라인 초기화 중 오류 발생: {e}")
         import traceback
         traceback.print_exc()
+        st.error(f"RAG 파이프라인 초기화 중 오류 발생: {e}")
         return None
 
 # Streamlit 웹 인터페이스
