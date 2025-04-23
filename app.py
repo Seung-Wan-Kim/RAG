@@ -511,7 +511,7 @@ def download_file_from_google_drive(file_id, destination):
 def initialize_rag_pipeline():
     import tempfile
     import os
-    import requests
+    import gdown
     
     # API 키를 Streamlit secrets에서 가져옴
     try:
@@ -523,8 +523,9 @@ def initialize_rag_pipeline():
     # 클라우드 스토리지에서 파일 다운로드
     try:
         with st.spinner("벡터 DB 다운로드 중..."):
-            # Google Drive 파일 ID
+            # Google Drive 파일 ID와 URL
             vector_db_file_id = "1K0_7pDzfawEnllbtXFeZuOa5JgPaYv3h"
+            vector_db_url = f"https://drive.google.com/uc?id={vector_db_file_id}"
             
             # 임시 파일 경로
             vector_db_path = os.path.join(tempfile.gettempdir(), "vector_db.pkl")
@@ -533,30 +534,8 @@ def initialize_rag_pipeline():
             current_dir = os.path.dirname(os.path.abspath(__file__))
             data_path = os.path.join(current_dir, "final_data.csv")
 
-            # 파일 다운로드 함수를 직접 구현
-            def download_from_drive(file_id, destination):
-                URL = "https://docs.google.com/uc?export=download"
-                session = requests.Session()
-
-                response = session.get(URL, params={'id': file_id}, stream=True)
-                token = None
-                for key, value in response.cookies.items():
-                    if key.startswith('download_warning'):
-                        token = value
-                        break
-
-                if token:
-                    params = {'id': file_id, 'confirm': token}
-                    response = session.get(URL, params=params, stream=True)
-
-                CHUNK_SIZE = 32768
-                with open(destination, "wb") as f:
-                    for chunk in response.iter_content(CHUNK_SIZE):
-                        if chunk:  # filter out keep-alive new chunks
-                            f.write(chunk)
-            
-            # 파일 다운로드
-            download_file_from_google_drive(vector_db_file_id, vector_db_path)
+            # gdown으로 파일 다운로드
+            gdown.download(vector_db_url, vector_db_path, quiet=False)
             
             st.success("파일 다운로드 완료")
             
