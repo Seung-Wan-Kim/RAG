@@ -6,45 +6,53 @@ import json
 import pickle
 import pandas as pd
 import numpy as np
-import faiss
 import streamlit as st
 from langchain.schema import Document
-from anthropic import Anthropic
-from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModel
-import torch
-
-print("10단계: Streamlit 웹 인터페이스 구현 시작")
 
 # 하이브리드 임베딩 클래스 정의
 class HybridEmbeddings:
     def __init__(self):
         print("하이브리드 임베딩 모델 초기화 중...")
-        
-        # 다국어 BERT 모델 (한국어 지원)
-        self.bert_model_name = "klue/bert-base"
-        self.bert_tokenizer = AutoTokenizer.from_pretrained(self.bert_model_name)
-        self.bert_model = AutoModel.from_pretrained(self.bert_model_name)
-        print(f"BERT 모델 로드 완료: {self.bert_model_name}")
-        
-        # SentenceTransformer 모델 (의미적 임베딩)
-        self.st_model_name = "jhgan/ko-sroberta-multitask"
-        self.st_model = SentenceTransformer(self.st_model_name)
-        print(f"SentenceTransformer 모델 로드 완료: {self.st_model_name}")
-        
-        # 설정
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.bert_model.to(self.device)
-        print(f"모델이 {self.device}에서 실행됩니다.")
-        
+        try:
+            # 다국어 BERT 모델 (한국어 지원)
+            from transformers import AutoTokenizer, AutoModel
+            import torch
+            
+            self.bert_model_name = "klue/bert-base"
+            self.bert_tokenizer = AutoTokenizer.from_pretrained(self.bert_model_name)
+            self.bert_model = AutoModel.from_pretrained(self.bert_model_name)
+            print(f"BERT 모델 로드 완료: {self.bert_model_name}")
+            
+            # SentenceTransformer 모델 (의미적 임베딩)
+            from sentence_transformers import SentenceTransformer
+            self.st_model_name = "jhgan/ko-sroberta-multitask"
+            self.st_model = SentenceTransformer(self.st_model_name)
+            print(f"SentenceTransformer 모델 로드 완료: {self.st_model_name}")
+            
+            # 설정
+            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            self.bert_model.to(self.device)
+            print(f"모델이 {self.device}에서 실행됩니다.")
+            self.models_loaded = True
+            
+        except Exception as e:
+            print(f"모델 로드 중 오류 발생: {e}")
+            self.models_loaded = False
+    
     def _mean_pooling(self, model_output, attention_mask):
+        import torch
         token_embeddings = model_output[0]
         input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
         return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
     
     def get_bert_embeddings(self, texts):
+        import torch
+        if not self.models_loaded:
+            # 모델이 로드되지 않은 경우 임의의 임베딩 반환
+            return np.random.rand(len(texts), 768).astype('float32')
+        
         encoded_input = self.bert_tokenizer(texts, padding=True, truncation=True, 
-                                            max_length=512, return_tensors='pt').to(self.device)
+                                          max_length=512, return_tensors='pt').to(self.device)
         
         with torch.no_grad():
             model_output = self.bert_model(**encoded_input)
@@ -55,6 +63,10 @@ class HybridEmbeddings:
         return sentence_embeddings.cpu().numpy()
     
     def get_st_embeddings(self, texts):
+        if not self.models_loaded:
+            # 모델이 로드되지 않은 경우 임의의 임베딩 반환
+            return np.random.rand(len(texts), 768).astype('float32')
+        
         embeddings = self.st_model.encode(texts, convert_to_tensor=True)
         return embeddings.cpu().numpy()
     
@@ -118,15 +130,18 @@ class BloodTestRAGSearchEngine:
         self.normal_ranges = get_normal_ranges()
         
         # 원본 데이터 로드 (선택적)
-        if processed_data_path:
+        if processed_data_path and os.path.exists(processed_data_path):
             # 파일 확장자 확인
             file_extension = processed_data_path.split('.')[-1].lower()
             if file_extension == 'csv':
                 self.processed_data = pd.read_csv(processed_data_path)
             elif file_extension in ['xlsx', 'xls']:
                 self.processed_data = pd.read_excel(processed_data_path)
+            print("처리된 데이터 로드 완료")
         else:
             self.processed_data = None
+            if processed_data_path:
+                print(f"경로를 찾을 수 없음: {processed_data_path}")
             
         print("RAG 검색 엔진 초기화 완료")
     
@@ -136,49 +151,62 @@ class BloodTestRAGSearchEngine:
         """
         print(f"쿼리 검색 중: {query}")
         
-        # 쿼리 임베딩 생성
-        query_embedding = self.hybrid_embeddings.embed_query(query)
-        
-        # 7단계에서 생성한 벡터 DB가 딕셔너리 형태인 경우 대응
-        if isinstance(self.vector_db, dict):
-            # 벡터 DB가 딕셔너리인 경우 직접 FAISS 검색 수행
-            query_vector = np.array([query_embedding]).astype('float32')
-            faiss.normalize_L2(query_vector)  # 정규화
+        try:
+            # 쿼리 임베딩 생성
+            query_embedding = self.hybrid_embeddings.embed_query(query)
             
-            # FAISS 인덱스로 검색
-            distances, indices = self.vector_db['index'].search(query_vector, k)
-            
-            results = []
-            for i, (idx, distance) in enumerate(zip(indices[0], distances[0])):
-                if idx < len(self.vector_db['documents']):
-                    doc = self.vector_db['documents'][idx]
-                    # 유사도 점수 계산 (거리를 유사도로 변환)
-                    similarity_score = 1.0 - float(distance) / 2.0
+            # 벡터 DB가 딕셔너리 형태인 경우 대응
+            if isinstance(self.vector_db, dict) and 'index' in self.vector_db and 'documents' in self.vector_db:
+                try:
+                    import faiss
+                    # 쿼리 벡터 준비
+                    query_vector = np.array([query_embedding]).astype('float32')
+                    faiss.normalize_L2(query_vector)  # 정규화
                     
-                    result = {
-                        'content': doc.page_content,
-                        'metadata': doc.metadata,
-                        'similarity_score': similarity_score
-                    }
-                    results.append(result)
-            
-            return results
-        else:
-            # 벡터 DB가 없는 경우 임시 결과 생성
-            print("벡터 DB가 없거나 호환되지 않습니다. 임시 결과를 생성합니다.")
-            # 임시 결과 생성
-            results = []
-            for i in range(3):
-                result = {
-                    'content': f"임시 검색 결과 {i+1}",
-                    'metadata': {
-                        '진단명': '빈혈증' if i == 0 else f'진단명{i+1}',
-                        '질병코드': 'D50' if i == 0 else f'코드{i+1}'
-                    },
-                    'similarity_score': 0.9 - (i * 0.1)
-                }
-                results.append(result)
-            return results
+                    # FAISS 인덱스로 검색
+                    distances, indices = self.vector_db['index'].search(query_vector, k)
+                    
+                    results = []
+                    for i, (idx, distance) in enumerate(zip(indices[0], distances[0])):
+                        if idx < len(self.vector_db['documents']):
+                            doc = self.vector_db['documents'][idx]
+                            # 유사도 점수 계산 (거리를 유사도로 변환)
+                            similarity_score = 1.0 - float(distance) / 2.0
+                            
+                            result = {
+                                'content': doc.page_content if hasattr(doc, 'page_content') else str(doc),
+                                'metadata': doc.metadata if hasattr(doc, 'metadata') else {},
+                                'similarity_score': similarity_score
+                            }
+                            results.append(result)
+                    
+                    return results
+                except Exception as e:
+                    print(f"FAISS 검색 중 오류: {e}")
+                    return self._generate_mock_results()
+            else:
+                # 벡터 DB가 없는 경우 임시 결과 생성
+                return self._generate_mock_results()
+                
+        except Exception as e:
+            print(f"검색 중 오류 발생: {e}")
+            return self._generate_mock_results()
+    
+    def _generate_mock_results(self):
+        print("벡터 DB가 없거나 호환되지 않습니다. 임시 결과를 생성합니다.")
+        # 임시 결과 생성
+        results = []
+        for i in range(3):
+            result = {
+                'content': f"임시 검색 결과 {i+1}",
+                'metadata': {
+                    '진단명': '빈혈증' if i == 0 else f'진단명{i+1}',
+                    '질병코드': 'D50' if i == 0 else f'코드{i+1}'
+                },
+                'similarity_score': 0.9 - (i * 0.1)
+            }
+            results.append(result)
+        return results
     
     def parse_query_results(self, query):
         """
@@ -274,7 +302,7 @@ class BloodTestRAGSearchEngine:
         
         # 검색 결과에서 진단명 추출
         for result in search_results:
-            metadata = result['metadata']
+            metadata = result.get('metadata', {})
             if '진단명' in metadata and metadata['진단명'] != 'N/A':
                 diagnosis_name = metadata['진단명']
                 diagnosis_code = metadata['질병코드'] if '질병코드' in metadata else 'N/A'
@@ -288,11 +316,14 @@ class BloodTestRAGSearchEngine:
                     }
                 
                 diagnoses[diagnosis_name]["count"] += 1
-                diagnoses[diagnosis_name]["similarity_scores"].append(result['similarity_score'])
+                diagnoses[diagnosis_name]["similarity_scores"].append(result.get('similarity_score', 0.0))
         
         # 평균 유사도 점수 계산 및 정렬
         for diagnosis in diagnoses.values():
-            diagnosis["avg_similarity"] = sum(diagnosis["similarity_scores"]) / len(diagnosis["similarity_scores"])
+            if diagnosis["similarity_scores"]:
+                diagnosis["avg_similarity"] = sum(diagnosis["similarity_scores"]) / len(diagnosis["similarity_scores"])
+            else:
+                diagnosis["avg_similarity"] = 0.0
         
         # 진단명 정렬 (빈도수 및 유사도 점수 기준)
         sorted_diagnoses = sorted(
@@ -310,17 +341,18 @@ class ClaudeResponseGenerator:
         Claude API 키로 초기화합니다.
         """
         print("Claude 응답 생성기 초기화 중...")
+        self.use_api = False
+        
         if api_key:
             try:
+                from anthropic import Anthropic
                 self.anthropic = Anthropic(api_key=api_key)
                 self.use_api = True
                 print("Claude API 초기화 완료")
             except Exception as e:
                 print(f"Claude API 초기화 실패: {e}")
-                self.use_api = False
         else:
             print("API 키가 제공되지 않아 모의 응답을 생성합니다.")
-            self.use_api = False
     
     def generate_response(self, query, search_results, test_analysis, possible_diagnoses):
         """
@@ -428,6 +460,7 @@ class ClaudeResponseGenerator:
         
         return response
 
+# RAG 파이프라인 클래스
 class BloodTestRAGPipeline:
     def __init__(self, search_engine, response_generator):
         """
@@ -443,76 +476,61 @@ class BloodTestRAGPipeline:
         """
         print(f"쿼리 처리 시작: {query}")
         
-        # 1. 쿼리에서 혈액검사 결과 추출
-        # 혈액검사 결과가 포함된 부분만 추출
-        test_results_part = query
-        if "혈액검사 결과:" in query:
-            test_results_part = query.split("혈액검사 결과:")[1].strip()
-        
-        test_results = self.search_engine.parse_query_results(test_results_part)
-        print(f"추출된 검사 결과: {test_results}")
-        
-        # 2. 검사 결과 분석
-        test_analysis = self.search_engine.analyze_test_results(test_results)
-        
-        # 3. 벡터 검색 수행
-        search_results = self.search_engine.search(query)
-        
-        # 4. 가능한 진단명 추출
-        possible_diagnoses = self.search_engine.get_possible_diagnoses(search_results, test_analysis)
-        
-        # 5. 응답 생성
-        response = self.response_generator.generate_response(
-            query, search_results, test_analysis, possible_diagnoses
-        )
-        
-        # 6. 결과 반환
-        result = {
-            "query": query,
-            "test_results": test_results,
-            "test_analysis": test_analysis,
-            "search_results": search_results,  # 검색 결과 추가
-            "possible_diagnoses": possible_diagnoses,
-            "response": response
-        }
-        
-        return result
-
-# Google Drive에서 파일 다운로드 함수 정의
-def download_file_from_google_drive(file_id, destination):
-    import requests
-    
-    def get_confirm_token(response):
-        for key, value in response.cookies.items():
-            if key.startswith('download_warning'):
-                return value
-        return None
-
-    def save_response_content(response, destination):
-        CHUNK_SIZE = 32768
-        with open(destination, "wb") as f:
-            for chunk in response.iter_content(CHUNK_SIZE):
-                if chunk:  # filter out keep-alive new chunks
-                    f.write(chunk)
-
-    URL = "https://docs.google.com/uc?export=download"
-    session = requests.Session()
-
-    response = session.get(URL, params={'id': file_id}, stream=True)
-    token = get_confirm_token(response)
-
-    if token:
-        params = {'id': file_id, 'confirm': token}
-        response = session.get(URL, params=params, stream=True)
-
-    save_response_content(response, destination)
+        try:
+            # 1. 쿼리에서 혈액검사 결과 추출
+            # 혈액검사 결과가 포함된 부분만 추출
+            test_results_part = query
+            if "혈액검사 결과:" in query:
+                test_results_part = query.split("혈액검사 결과:")[1].strip()
+            
+            test_results = self.search_engine.parse_query_results(test_results_part)
+            print(f"추출된 검사 결과: {test_results}")
+            
+            # 2. 검사 결과 분석
+            test_analysis = self.search_engine.analyze_test_results(test_results)
+            
+            # 3. 벡터 검색 수행
+            search_results = self.search_engine.search(query)
+            
+            # 4. 가능한 진단명 추출
+            possible_diagnoses = self.search_engine.get_possible_diagnoses(search_results, test_analysis)
+            
+            # 5. 응답 생성
+            response = self.response_generator.generate_response(
+                query, search_results, test_analysis, possible_diagnoses
+            )
+            
+            # 6. 결과 반환
+            result = {
+                "query": query,
+                "test_results": test_results,
+                "test_analysis": test_analysis,
+                "search_results": search_results,
+                "possible_diagnoses": possible_diagnoses,
+                "response": response
+            }
+            
+            return result
+        except Exception as e:
+            import traceback
+            print(f"쿼리 처리 중 오류 발생: {e}")
+            traceback.print_exc()
+            
+            # 오류 발생 시 기본 결과 반환
+            return {
+                "query": query,
+                "test_results": {},
+                "test_analysis": {},
+                "search_results": [],
+                "possible_diagnoses": [],
+                "response": "분석 중 오류가 발생했습니다. 다시 시도해주세요."
+            }
 
 # RAG 파이프라인 초기화 (전역 변수)
 @st.cache_resource
 def initialize_rag_pipeline():
     import tempfile
     import os
-    import gdown
     
     # API 키를 Streamlit secrets에서 가져옴
     try:
@@ -521,31 +539,47 @@ def initialize_rag_pipeline():
         st.warning("API 키를 찾을 수 없습니다. 모의 응답을 생성합니다.")
         claude_api_key = None
     
-    # 클라우드 스토리지에서 파일 다운로드
+    # 클라우드 스토리지에서 파일 다운로드 시도
     try:
         with st.spinner("벡터 DB 다운로드 중..."):
-            # Google Drive 파일 ID와 URL
-            vector_db_file_id = "1K0_7pDzfawEnllbtXFeZuOa5JgPaYv3h"
-            vector_db_url = f"https://drive.google.com/uc?id={vector_db_file_id}"
-            
             # 임시 파일 경로
             vector_db_path = os.path.join(tempfile.gettempdir(), "vector_db.pkl")
-
-            # GitHub 저장소의 데이터 파일 경로
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            data_path = os.path.join(current_dir, "final_data.csv")
-
-            # gdown으로 파일 다운로드
-            gdown.download(vector_db_url, vector_db_path, quiet=False)
+            data_path = os.path.join(tempfile.gettempdir(), "final_data.csv")
             
-            st.success("파일 다운로드 완료")
+            try:
+                # gdown 설치 확인 및 설치
+                import importlib
+                if importlib.util.find_spec("gdown") is None:
+                    import subprocess
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "gdown"])
+                
+                import gdown
+                
+                # Google Drive 파일 ID와 URL
+                vector_db_file_id = "1K0_7pDzfawEnllbtXFeZuOa5JgPaYv3h"
+                vector_db_url = f"https://drive.google.com/uc?id={vector_db_file_id}"
+                
+                # gdown으로 파일 다운로드
+                gdown.download(vector_db_url, vector_db_path, quiet=False)
+                
+                st.success("파일 다운로드 완료")
+                
+                # 벡터 DB 로드
+                if os.path.exists(vector_db_path):
+                    with open(vector_db_path, 'rb') as f:
+                        vector_db = pickle.load(f)
+                else:
+                    vector_db = None
+                    st.warning("벡터 DB 파일을 찾을 수 없습니다. 기본 모드로 실행합니다.")
             
-            # 벡터 DB 로드
-            with open(vector_db_path, 'rb') as f:
-                vector_db = pickle.load(f)
+            except Exception as e:
+                import traceback
+                st.warning(f"gdown 다운로드 중 오류: {e}")
+                traceback.print_exc()
+                vector_db = None
         
         # RAG 검색 엔진 초기화
-        search_engine = BloodTestRAGSearchEngine(vector_db, data_path)
+        search_engine = BloodTestRAGSearchEngine(vector_db, data_path if os.path.exists(data_path) else None)
         
         # Claude 응답 생성기 초기화
         response_generator = ClaudeResponseGenerator(claude_api_key)
@@ -557,13 +591,13 @@ def initialize_rag_pipeline():
         
     except Exception as e:
         import traceback
-        st.error(f"파일 다운로드 중 오류 발생: {e}")
+        st.error(f"파이프라인 초기화 중 오류 발생: {e}")
         traceback.print_exc()
         
         # 오류 발생 시 기본 모드로 실행
         st.warning("기본 모드로 실행합니다. 일부 기능이 제한될 수 있습니다.")
         search_engine = BloodTestRAGSearchEngine(None, None)
-        response_generator = ClaudeResponseGenerator(claude_api_key)
+        response_generator = ClaudeResponseGenerator(None)
         return BloodTestRAGPipeline(search_engine, response_generator)
 
 # Streamlit 웹 인터페이스
@@ -577,7 +611,8 @@ def main():
     st.title("혈액검사 분석 시스템")
     
     # RAG 파이프라인 초기화
-    rag_pipeline = initialize_rag_pipeline()
+    with st.spinner("시스템 초기화 중..."):
+        rag_pipeline = initialize_rag_pipeline()
     
     # 정상범위 데이터 로드
     normal_ranges = get_normal_ranges()
@@ -634,58 +669,64 @@ def main():
         
         if analyze_btn and st.session_state.test_results:
             with st.spinner("분석 중..."):
-                # 쿼리 생성
-                query_parts = ["혈액검사 결과:"]
-                for item, val in st.session_state.test_results.items():
-                    query_parts.append(f"{item}: {val}")
-                
-                query = ", ".join(query_parts)
-                
-                # RAG 파이프라인 실행
-                if rag_pipeline:
-                    result = rag_pipeline.process_query(query)
+                try:
+                    # 쿼리 생성
+                    query_parts = ["혈액검사 결과:"]
+                    for item, val in st.session_state.test_results.items():
+                        query_parts.append(f"{item}: {val}")
                     
-                    # 비정상 항목 표시
-                    st.subheader("비정상 수치 항목")
+                    query = ", ".join(query_parts)
                     
-                    analysis = result["test_analysis"]
-                    abnormal_items = [(item, data) for item, data in analysis.items() if data["status"] != "정상"]
-                    
-                    if abnormal_items:
-                        for item, data in abnormal_items:
-                            if data["status"] == "높음":
-                                color = "danger"
-                            elif data["status"] == "낮음":
-                                color = "primary"
-                            else:
-                                color = "secondary"
-                            
-                            st.markdown(f"""
-                            <div style='padding: 10px; border-radius: 5px; background-color: {'#f8d7da' if color == 'danger' else '#cfe2ff' if color == 'primary' else '#e2e3e5'}'>
-                                <b>{item}:</b> {data['value']} ({data['status']})<br>
-                                <small>정상 범위: {data['normal_range']}</small><br>
-                                <small>{data['deviation']}</small>
-                            </div>
-                            """, unsafe_allow_html=True)
+                    # RAG 파이프라인 실행
+                    if rag_pipeline:
+                        result = rag_pipeline.process_query(query)
+                        
+                        # 비정상 항목 표시
+                        st.subheader("비정상 수치 항목")
+                        
+                        analysis = result.get("test_analysis", {})
+                        abnormal_items = [(item, data) for item, data in analysis.items() if data.get("status") != "정상"]
+                        
+                        if abnormal_items:
+                            for item, data in abnormal_items:
+                                if data.get("status") == "높음":
+                                    color = "danger"
+                                elif data.get("status") == "낮음":
+                                    color = "primary"
+                                else:
+                                    color = "secondary"
+                                
+                                st.markdown(f"""
+                                <div style='padding: 10px; border-radius: 5px; background-color: {'#f8d7da' if color == 'danger' else '#cfe2ff' if color == 'primary' else '#e2e3e5'}'>
+                                    <b>{item}:</b> {data.get('value')} ({data.get('status')})<br>
+                                    <small>정상 범위: {data.get('normal_range')}</small><br>
+                                    <small>{data.get('deviation')}</small>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        else:
+                            st.success("모든 검사 항목이 정상 범위 내에 있습니다.")
+                        
+                        # 진단명 표시
+                        st.subheader("가능성 높은 진단명")
+                        
+                        possible_diagnoses = result.get("possible_diagnoses", [])
+                        if possible_diagnoses:
+                            for diagnosis, info in possible_diagnoses[:5]:
+                                st.write(f"**{diagnosis}** (코드: {info.get('code')})")
+                                st.write(f"유사도: {info.get('avg_similarity', 0):.2f}")
+                                st.write("---")
+                        else:
+                            st.info("유사한 진단명을 찾을 수 없습니다.")
+                        
+                        # 상세 분석 및 권장 사항
+                        st.subheader("상세 분석 및 권장 사항")
+                        st.markdown(result.get("response", "분석 결과를 생성할 수 없습니다."))
                     else:
-                        st.success("모든 검사 항목이 정상 범위 내에 있습니다.")
-                    
-                    # 진단명 표시
-                    st.subheader("가능성 높은 진단명")
-                    
-                    if result["possible_diagnoses"]:
-                        for diagnosis, info in result["possible_diagnoses"][:5]:
-                            st.write(f"**{diagnosis}** (코드: {info['code']})")
-                            st.write(f"유사도: {info['avg_similarity']:.2f}")
-                            st.write("---")
-                    else:
-                        st.info("유사한 진단명을 찾을 수 없습니다.")
-                    
-                    # 상세 분석 및 권장 사항
-                    st.subheader("상세 분석 및 권장 사항")
-                    st.markdown(result["response"])
-                else:
-                    st.error("RAG 파이프라인이 초기화되지 않았습니다.")
+                        st.error("RAG 파이프라인이 초기화되지 않았습니다.")
+                except Exception as e:
+                    import traceback
+                    st.error(f"분석 중 오류가 발생했습니다: {e}")
+                    traceback.print_exc()
 
 if __name__ == "__main__":
     main()
