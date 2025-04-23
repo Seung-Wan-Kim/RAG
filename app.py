@@ -480,33 +480,50 @@ class BloodTestRAGPipeline:
 # RAG 파이프라인 초기화 (전역 변수)
 @st.cache_resource
 def initialize_rag_pipeline():
-    # 상대 경로 사용 (현재 스크립트 위치 기준)
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    vector_db_path = os.path.join(current_dir, "vector_db.pkl")
-    data_path = os.path.join(current_dir, "final_data.csv")
+    import tempfile
+    import requests
     
     # API 키를 Streamlit secrets에서 가져옴
     try:
         claude_api_key = st.secrets["anthropic"]["api_key"]
-        print("API 키 로드 완료")
     except Exception as e:
-        st.error(f"API 키 로드 중 오류 발생: {e}")
-        return None
+        st.warning("API 키를 찾을 수 없습니다. 모의 응답을 생성합니다.")
+        claude_api_key = None
     
+    # 클라우드 스토리지에서 파일 다운로드
     try:
-        # 벡터 DB 로드
-        if os.path.exists(vector_db_path):
+        with st.spinner("벡터 DB 다운로드 중..."):
+            # Google Drive 파일 ID
+            vector_db_file_id = "https://drive.google.com/file/d/1K0_7pDzfawEnllbtXFeZuOa5JgPaYv3h/view?usp=sharing"
+            data_file_id = "https://drive.google.com/file/d/1IODtfq9WywcMk2EPTH8TyDmyHve3GaM-/view?usp=sharing"
+            
+            # 다운로드 URL
+            vector_db_url = f"https://drive.google.com/uc?export=download&id={vector_db_file_id}"
+            data_url = f"https://drive.google.com/uc?export=download&id={data_file_id}"
+            
+            # 벡터 DB 다운로드
+            vector_db_path = None
+            temp_vector_db = tempfile.NamedTemporaryFile(delete=False, suffix='.pkl')
+            vector_db_path = temp_vector_db.name
+            
+            response = requests.get(vector_db_url)
+            with open(vector_db_path, 'wb') as f:
+                f.write(response.content)
+            
+            # 데이터 파일 다운로드
+            data_path = None
+            temp_data = tempfile.NamedTemporaryFile(delete=False, suffix='.csv')
+            data_path = temp_data.name
+            
+            response = requests.get(data_url)
+            with open(data_path, 'wb') as f:
+                f.write(response.content)
+            
+            st.success("파일 다운로드 완료")
+            
+            # 벡터 DB 로드
             with open(vector_db_path, 'rb') as f:
                 vector_db = pickle.load(f)
-            print("벡터 DB 로드 완료")
-        else:
-            st.error(f"벡터 DB 파일이 존재하지 않습니다: {vector_db_path}")
-            return None
-        
-        # 데이터 파일 확인
-        if not os.path.exists(data_path):
-            st.error(f"데이터 파일이 존재하지 않습니다: {data_path}")
-            return None
         
         # RAG 검색 엔진 초기화
         search_engine = BloodTestRAGSearchEngine(vector_db, data_path)
@@ -517,14 +534,18 @@ def initialize_rag_pipeline():
         # RAG 파이프라인 초기화
         rag_pipeline = BloodTestRAGPipeline(search_engine, response_generator)
         
-        print("RAG 파이프라인 초기화 완료")
         return rag_pipeline
+        
     except Exception as e:
-        print(f"RAG 파이프라인 초기화 중 오류 발생: {e}")
         import traceback
+        st.error(f"파일 다운로드 중 오류 발생: {e}")
         traceback.print_exc()
-        st.error(f"RAG 파이프라인 초기화 중 오류 발생: {e}")
-        return None
+        
+        # 오류 발생 시 기본 모드로 실행
+        st.warning("기본 모드로 실행합니다. 일부 기능이 제한될 수 있습니다.")
+        search_engine = BloodTestRAGSearchEngine(None, None)
+        response_generator = ClaudeResponseGenerator(claude_api_key)
+        return BloodTestRAGPipeline(search_engine, response_generator)
 
 # Streamlit 웹 인터페이스
 def main():
