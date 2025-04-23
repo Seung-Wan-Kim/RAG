@@ -437,46 +437,46 @@ class BloodTestRAGPipeline:
         self.search_engine = search_engine
         self.response_generator = response_generator
     
-def process_query(self, query):
-    """
-    사용자 쿼리를 처리하여 응답을 생성합니다.
-    """
-    print(f"쿼리 처리 시작: {query}")
-    
-    # 1. 쿼리에서 혈액검사 결과 추출
-    # 혈액검사 결과가 포함된 부분만 추출
-    test_results_part = query
-    if "혈액검사 결과:" in query:
-        test_results_part = query.split("혈액검사 결과:")[1].strip()
-    
-    test_results = self.search_engine.parse_query_results(test_results_part)
-    print(f"추출된 검사 결과: {test_results}")
-    
-    # 2. 검사 결과 분석
-    test_analysis = self.search_engine.analyze_test_results(test_results)
-    
-    # 3. 벡터 검색 수행
-    search_results = self.search_engine.search(query)
-    
-    # 4. 가능한 진단명 추출
-    possible_diagnoses = self.search_engine.get_possible_diagnoses(search_results, test_analysis)
-    
-    # 5. 응답 생성
-    response = self.response_generator.generate_response(
-        query, search_results, test_analysis, possible_diagnoses
-    )
-    
-    # 6. 결과 반환
-    result = {
-        "query": query,
-        "test_results": test_results,
-        "test_analysis": test_analysis,
-        "search_results": search_results,  # 검색 결과 추가
-        "possible_diagnoses": possible_diagnoses,
-        "response": response
-    }
-    
-    return result
+    def process_query(self, query):
+        """
+        사용자 쿼리를 처리하여 응답을 생성합니다.
+        """
+        print(f"쿼리 처리 시작: {query}")
+        
+        # 1. 쿼리에서 혈액검사 결과 추출
+        # 혈액검사 결과가 포함된 부분만 추출
+        test_results_part = query
+        if "혈액검사 결과:" in query:
+            test_results_part = query.split("혈액검사 결과:")[1].strip()
+        
+        test_results = self.search_engine.parse_query_results(test_results_part)
+        print(f"추출된 검사 결과: {test_results}")
+        
+        # 2. 검사 결과 분석
+        test_analysis = self.search_engine.analyze_test_results(test_results)
+        
+        # 3. 벡터 검색 수행
+        search_results = self.search_engine.search(query)
+        
+        # 4. 가능한 진단명 추출
+        possible_diagnoses = self.search_engine.get_possible_diagnoses(search_results, test_analysis)
+        
+        # 5. 응답 생성
+        response = self.response_generator.generate_response(
+            query, search_results, test_analysis, possible_diagnoses
+        )
+        
+        # 6. 결과 반환
+        result = {
+            "query": query,
+            "test_results": test_results,
+            "test_analysis": test_analysis,
+            "search_results": search_results,  # 검색 결과 추가
+            "possible_diagnoses": possible_diagnoses,
+            "response": response
+        }
+        
+        return result
 
 # Google Drive에서 파일 다운로드 함수 정의
 def download_file_from_google_drive(file_id, destination):
