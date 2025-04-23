@@ -481,7 +481,7 @@ class BloodTestRAGPipeline:
 @st.cache_resource
 def initialize_rag_pipeline():
     import tempfile
-    import requests
+    import os
     
     # API 키를 Streamlit secrets에서 가져옴
     try:
@@ -497,27 +497,13 @@ def initialize_rag_pipeline():
             vector_db_file_id = "https://drive.google.com/file/d/1K0_7pDzfawEnllbtXFeZuOa5JgPaYv3h/view?usp=sharing"
             data_file_id = "https://drive.google.com/file/d/1IODtfq9WywcMk2EPTH8TyDmyHve3GaM-/view?usp=sharing"
             
-            # 다운로드 URL
-            vector_db_url = f"https://drive.google.com/uc?export=download&id={vector_db_file_id}"
-            data_url = f"https://drive.google.com/uc?export=download&id={data_file_id}"
+            # 임시 파일 경로
+            vector_db_path = os.path.join(tempfile.gettempdir(), "vector_db.pkl")
+            data_path = os.path.join(tempfile.gettempdir(), "final_data.csv")
             
-            # 벡터 DB 다운로드
-            vector_db_path = None
-            temp_vector_db = tempfile.NamedTemporaryFile(delete=False, suffix='.pkl')
-            vector_db_path = temp_vector_db.name
-            
-            response = requests.get(vector_db_url)
-            with open(vector_db_path, 'wb') as f:
-                f.write(response.content)
-            
-            # 데이터 파일 다운로드
-            data_path = None
-            temp_data = tempfile.NamedTemporaryFile(delete=False, suffix='.csv')
-            data_path = temp_data.name
-            
-            response = requests.get(data_url)
-            with open(data_path, 'wb') as f:
-                f.write(response.content)
+            # 파일 다운로드
+            download_file_from_google_drive(vector_db_file_id, vector_db_path)
+            download_file_from_google_drive(data_file_id, data_path)
             
             st.success("파일 다운로드 완료")
             
