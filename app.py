@@ -511,6 +511,7 @@ def download_file_from_google_drive(file_id, destination):
 def initialize_rag_pipeline():
     import tempfile
     import os
+    import requests
     
     # API 키를 Streamlit secrets에서 가져옴
     try:
@@ -530,9 +531,31 @@ def initialize_rag_pipeline():
             vector_db_path = os.path.join(tempfile.gettempdir(), "vector_db.pkl")
             data_path = os.path.join(tempfile.gettempdir(), "final_data.csv")
             
+            # 파일 다운로드 함수를 직접 구현
+            def download_from_drive(file_id, destination):
+                URL = "https://docs.google.com/uc?export=download"
+                session = requests.Session()
+
+                response = session.get(URL, params={'id': file_id}, stream=True)
+                token = None
+                for key, value in response.cookies.items():
+                    if key.startswith('download_warning'):
+                        token = value
+                        break
+
+                if token:
+                    params = {'id': file_id, 'confirm': token}
+                    response = session.get(URL, params=params, stream=True)
+
+                CHUNK_SIZE = 32768
+                with open(destination, "wb") as f:
+                    for chunk in response.iter_content(CHUNK_SIZE):
+                        if chunk:  # filter out keep-alive new chunks
+                            f.write(chunk)
+            
             # 파일 다운로드
-            download_file_from_google_drive(vector_db_file_id, vector_db_path)
-            download_file_from_google_drive(data_file_id, data_path)
+            download_from_drive(vector_db_file_id, vector_db_path)
+            download_from_drive(data_file_id, data_path)
             
             st.success("파일 다운로드 완료")
             
