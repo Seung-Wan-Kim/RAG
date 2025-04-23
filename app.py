@@ -613,7 +613,7 @@ def main():
                 with col_b:
                     if st.button("삭제", key=f"del_{item}"):
                         del st.session_state.test_results[item]
-                        st.rerun()
+                        st.experimental_rerun()
         
         # 분석 및 초기화 버튼
         col_analyze, col_reset = st.columns(2)
@@ -625,7 +625,7 @@ def main():
             reset_btn = st.button("초기화")
             if reset_btn:
                 st.session_state.test_results = {}
-                st.rerun()
+                st.experimental_rerun()
     
     # 결과 표시 (오른쪽 컬럼)
     with col2:
