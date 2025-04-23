@@ -471,9 +471,9 @@ def process_query(self, query):
         "query": query,
         "test_results": test_results,
         "test_analysis": test_analysis,
-        "search_results": search_results,  # 검색 결과 추가
         "possible_diagnoses": possible_diagnoses,
         "response": response
+        "search_results": search_results,  # 검색 결과 추가
     }
     
     return result
@@ -629,22 +629,26 @@ def main():
                 st.rerun()
     
     # 결과 표시 (오른쪽 컬럼)
-    with col2:
-        st.header("분석 결과")
-        
-        if analyze_btn and st.session_state.test_results:
-            with st.spinner("분석 중..."):
-                # 쿼리 생성
-                query_parts = ["혈액검사 결과:"]
-                for item, val in st.session_state.test_results.items():
-                    query_parts.append(f"{item}: {val}")
+with col2:
+    st.header("분석 결과")
+    
+    if analyze_btn and st.session_state.test_results:
+        with st.spinner("분석 중..."):
+            # 쿼리 생성
+            query_parts = ["혈액검사 결과:"]
+            for item, val in st.session_state.test_results.items():
+                query_parts.append(f"{item}: {val}")
+            
+            query = ", ".join(query_parts)
+            
+            # RAG 파이프라인 실행
+            if rag_pipeline:
+                result = rag_pipeline.process_query(query)
                 
-                query = ", ".join(query_parts)
+                # 탭 생성
+                tab_results, tab_process = st.tabs(["최종 결과", "중간 과정"])
                 
-                # RAG 파이프라인 실행
-                if rag_pipeline:
-                    result = rag_pipeline.process_query(query)
-                    
+                with tab_results:
                     # 비정상 항목 표시
                     st.subheader("비정상 수치 항목")
                     
@@ -684,8 +688,62 @@ def main():
                     # 상세 분석 및 권장 사항
                     st.subheader("상세 분석 및 권장 사항")
                     st.markdown(result["response"])
-                else:
-                    st.error("RAG 파이프라인이 초기화되지 않았습니다.")
+                
+                with tab_process:
+                    st.subheader("RAG 시스템 중간 과정")
+                    
+                    # 1. 참조 데이터 정보
+                    with st.expander("참조 데이터 정보"):
+                        st.write("**정상범위 참조 데이터:**")
+                        st.json(normal_ranges)
+                        
+                        st.write("**벡터 데이터베이스 정보:**")
+                        vector_db = getattr(rag_pipeline.search_engine, 'vector_db', None)
+                        if vector_db:
+                            st.write(f"데이터베이스 크기: {len(vector_db['documents'])} 문서")
+                            st.write(f"벡터 차원: {vector_db['index'].d}")
+                        else:
+                            st.write("임시 벡터 데이터베이스 사용 중")
+                    
+                    # 2. 쿼리 처리 과정
+                    with st.expander("쿼리 처리 과정"):
+                        st.write("**원본 쿼리:**")
+                        st.code(query)
+                        
+                        st.write("**추출된 검사 결과:**")
+                        st.json(result["test_results"])
+                    
+                    # 3. 검색 결과 상세
+                    with st.expander("검색 결과 상세"):
+                        st.write("**상위 유사 문서:**")
+                        search_results = result.get("search_results", [])
+                        if search_results:
+                            for i, search_result in enumerate(search_results):
+                                st.markdown(f"**문서 {i+1}** (유사도: {search_result.get('similarity_score', 0):.4f})")
+                                st.write(f"내용: {search_result.get('content', '')[:200]}...")
+                                st.write(f"메타데이터: {search_result.get('metadata', {})}")
+                                st.write("---")
+                        else:
+                            st.info("검색 결과가 없습니다.")
+                    
+                    # 4. 진단 추론 과정
+                    with st.expander("진단 추론 과정"):
+                        st.write("**진단명 추출 및 점수 계산:**")
+                        possible_diagnoses = result.get("possible_diagnoses", [])
+                        if possible_diagnoses:
+                            for diagnosis, info in possible_diagnoses:
+                                st.write(f"**{diagnosis}** (코드: {info.get('code', 'N/A')})")
+                                st.write(f"발견 빈도: {info.get('count', 0)} 문서")
+                                similarity_scores = info.get('similarity_scores', [])
+                                if similarity_scores:
+                                    st.write(f"유사도 점수: {', '.join([f'{score:.4f}' for score in similarity_scores])}")
+                                st.write(f"평균 유사도: {info.get('avg_similarity', 0):.4f}")
+                                st.write("---")
+                        else:
+                            st.info("추출된 진단명이 없습니다.")
+                    
+            else:
+                st.error("RAG 파이프라인이 초기화되지 않았습니다.")
 
 if __name__ == "__main__":
     main()
