@@ -525,12 +525,14 @@ def initialize_rag_pipeline():
         with st.spinner("벡터 DB 다운로드 중..."):
             # Google Drive 파일 ID
             vector_db_file_id = "https://drive.google.com/file/d/1K0_7pDzfawEnllbtXFeZuOa5JgPaYv3h/view?usp=sharing"
-            data_file_id = "https://drive.google.com/file/d/1IODtfq9WywcMk2EPTH8TyDmyHve3GaM-/view?usp=sharing"
             
             # 임시 파일 경로
             vector_db_path = os.path.join(tempfile.gettempdir(), "vector_db.pkl")
-            data_path = os.path.join(tempfile.gettempdir(), "final_data.csv")
-            
+
+            # GitHub 저장소의 데이터 파일 경로
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            data_path = os.path.join(current_dir, "final_data.csv")
+
             # 파일 다운로드 함수를 직접 구현
             def download_from_drive(file_id, destination):
                 URL = "https://docs.google.com/uc?export=download"
@@ -555,7 +557,6 @@ def initialize_rag_pipeline():
             
             # 파일 다운로드
             download_from_drive(vector_db_file_id, vector_db_path)
-            download_from_drive(data_file_id, data_path)
             
             st.success("파일 다운로드 완료")
             
